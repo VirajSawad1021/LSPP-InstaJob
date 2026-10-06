@@ -1,0 +1,34 @@
+# Render blueprint for the InstaJob API (FastAPI). Dashboard -> New -> Blueprint -> pick this repo.
+# Secrets marked sync: false are entered in the Render dashboard, never committed.
+services:
+  - type: web
+    name: instajob-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: SUPABASE_URL
+        value: https://fsljiocqekhvegflpbta.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: FRONTEND_ORIGINS
+        sync: false            # e.g. https://your-app.vercel.app,http://localhost:3000
+      - key: FRONTEND_ORIGIN_REGEX
+        value: https://.*\.vercel\.app
+      - key: MAX_NEGOTIATION_ROUNDS
+        value: "8"
+      - key: RESEND_API_KEY
+        sync: false            # optional: email notifications
+      - key: APP_URL
+        value: https://instajob.vercel.app
