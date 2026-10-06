@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>InstaJob reel</title>
+<!--
+  InstaJob motion reel. One shape, never cut: every state is the same element morphing.
+  120 BPM, 7 bars (28 beats, 14 s), loops. Every style is a pure function of time inside seek(t):
+  no CSS transitions, no timers, no state between frames. Springs are closed-form step responses,
+  and a value that changes target many times is the sum of one spring per change.
+  Render: python motion/render.py --beats (QA sheet), python motion/render.py (full render)
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #ecebe6; }
+  body { font-family: Geist, ui-sans-serif, system-ui, sans-serif; color: #141413; -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1; }
+  #stage { position: absolute; left: 960px; top: 540px; width: 0; height: 0; }
+  #cam { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; }
+  #shape { position: absolute; box-sizing: border-box; overflow: hidden; }
+  .layer { position: absolute; left: 50%; top: 50%; box-sizing: border-box; display: none; }
+  .row { display: flex; align-items: center; }
+  .muted { color: #8d8b84; }
+  .ico { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 999px; background: #f1efea; font-size: 14px; font-weight: 500; }
+  .ms { display: flex; align-items: center; gap: 14px; height: 62px; padding: 0 20px; border-radius: 16px; background: #f4f3ef; font-size: 18px; box-sizing: border-box; }
+  .ms .id { width: 28px; color: #8d8b84; font-size: 15px; }
+  .ms .t { flex: 1; font-weight: 500; }
+  .col { position: absolute; width: 290px; height: 322px; border-radius: 20px; background: #ebe9e3; box-sizing: border-box; padding: 18px 20px; font-size: 15px; color: #5b5a55; font-weight: 500; }
+  .av { width: 56px; height: 56px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600; flex: none; }
+  .sig { display: flex; align-items: center; gap: 14px; height: 60px; padding: 0 16px; border-radius: 16px; background: #f4f3ef; }
+  .ring { width: 30px; height: 30px; border-radius: 999px; box-sizing: border-box; border: 2px solid #d8d5cc; display: flex; align-items: center; justify-content: center; flex: none; }
+  #cursor { position: absolute; left: 0; top: 0; width: 30px; height: 36px; transform-origin: 0 0; }
+</style>
+</head>
+<body>
+<div id="stage"><div id="cam">
+  <div id="shape">
+
+    <!-- 0: the idea -->
+    <div class="layer" id="L-input" style="width:560px;height:76px;padding:0 30px;">
+      <div class="row" style="height:76px;font-size:22px;">
+        <span id="typed"></span><span id="ph" class="muted">Describe your product idea…</span>
+        <span id="caret" style="display:inline-block;width:2px;height:28px;background:#141413;margin-left:2px;"></span>
+      </div>
+    </div>
+
+    <!-- 1: button -->
+    <div class="layer" id="L-btn" style="width:380px;height:76px;">
+      <div class="row" style="height:76px;justify-content:center;gap:12px;color:#fff;font-size:22px;font-weight:500;">
+        Get my Build Plan <svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </div>
+    </div>
+
+    <!-- 2: loader -->
+    <div class="layer" id="L-loader" style="width:76px;height:76px;">
+      <svg id="spin" width="76" height="76" viewBox="0 0 76 76"><circle cx="38" cy="38" r="15" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="3"/>
+        <path d="M38 23 a15 15 0 0 1 15 15" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
+    </div>
+
+    <!-- 3: Build Plan -->
+    <div class="layer" id="L-plan" style="width:620px;height:470px;padding:30px;">
+      <div class="row" style="justify-content:space-between;align-items:flex-end;">
+        <div><div class="muted" style="font-size:15px;">Build Plan</div><div style="font-size:28px;font-weight:500;letter-spacing:-0.02em;margin-top:4px;">Tutor booking, Kathmandu</div></div>
+        <div id="plan-meta" class="muted" style="font-size:15px;">4 milestones · 70 h</div>
+      </div>
+      <div style="margin-top:22px;display:flex;flex-direction:column;gap:10px;">
+        <div class="ms" id="ms1"><span class="id">m1</span><span class="t">Tutor search &amp; profiles</span><span class="chip">must</span></div>
+        <div class="ms" id="ms2"><span class="id">m2</span><span class="t">Weekly booking</span><span class="chip">must</span></div>
+        <div class="ms" id="ms3"><span class="id">m3</span><span class="t">Khalti payments</span><span class="chip">must</span></div>
+        <div class="ms" id="ms4"><span class="id">m4</span><span class="t">Tutor dashboard</span><span class="chip">should</span></div>
+      </div>
+    </div>
+
+    <!-- 4: negotiation -->
+    <div class="layer" id="L-price" style="width:580px;height:156px;padding:0 34px;">
+      <div class="row" style="height:156px;gap:22px;">
+        <div style="position:relative;width:56px;height:56px;">
+          <div class="av" id="av-dev" style="position:absolute;background:#141413;color:#fff;">AS</div>
+          <div class="av" id="av-you" style="position:absolute;background:#f1efea;color:#141413;">AJ</div>
+        </div>
+        <div style="flex:1;">
+          <div style="position:relative;height:22px;font-size:17px;" class="muted">
+            <span id="lab1" style="position:absolute;white-space:nowrap;">Ayam's agent asks</span>
+            <span id="lab2" style="position:absolute;white-space:nowrap;">Your agent counters</span>
+            <span id="lab3" style="position:absolute;white-space:nowrap;">They meet in the middle</span>
+          </div>
+          <div id="price" style="font-size:54px;font-weight:500;letter-spacing:-0.03em;line-height:64px;">$2,460</div>
+          <div id="chips" class="row" style="gap:8px;margin-top:2px;">
+            <span class="chip"><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Within your budget</span>
+            <span class="chip"><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Above Ayam's floor</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5: agreed -->
+    <div class="layer" id="L-agreed" style="width:580px;height:156px;">
+      <div style="height:156px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;">
+        <div class="row" style="gap:14px;font-size:44px;font-weight:500;letter-spacing:-0.03em;">
+          <svg class="ico" viewBox="0 0 24 24" style="stroke-width:2.4;"><path id="agreed-check" d="M20 6 9 17l-5-5"/></svg>Agreed
+        </div>
+        <div style="font-size:19px;opacity:.85;margin-top:6px;">$1,950 · 3 milestones · 6 weeks</div>
+      </div>
+    </div>
+
+    <!-- 6: contract -->
+    <div class="layer" id="L-contract" style="width:560px;height:260px;padding:28px;">
+      <div class="row" style="justify-content:space-between;">
+        <div><div class="muted" style="font-size:15px;">Contract</div><div style="font-size:26px;font-weight:500;letter-spacing:-0.02em;margin-top:4px;">Tutor booking · $1,950</div></div>
+      </div>
+      <div style="margin-top:18px;display:flex;flex-direction:column;gap:10px;">
+        <div class="sig"><div class="av" style="width:36px;height:36px;font-size:13px;background:#855b2e;color:#fff;">AJ</div>
+          <div style="flex:1;font-size:18px;"><b style="font-weight:500;">Aakriti Joshi</b> <span class="muted">· founder</span></div>
+          <div class="ring" id="ring1"><svg width="16" height="16" viewBox="0 0 24 24" class="ico" style="width:16px;height:16px;color:#fff;stroke-width:3;"><path id="chk1" d="M20 6 9 17l-5-5"/></svg></div></div>
+        <div class="sig"><div class="av" style="width:36px;height:36px;font-size:13px;background:#141413;color:#fff;">AS</div>
+          <div style="flex:1;font-size:18px;"><b style="font-weight:500;">Ayam Shrestha</b> <span class="muted">· developer</span></div>
+          <div class="ring" id="ring2"><svg width="16" height="16" viewBox="0 0 24 24" class="ico" style="width:16px;height:16px;color:#fff;stroke-width:3;"><path id="chk2" d="M20 6 9 17l-5-5"/></svg></div></div>
+      </div>
+    </div>
+
+    <!-- 7: fund -->
+    <div class="layer" id="L-fund" style="width:400px;height:80px;">
+      <div class="row" style="height:80px;justify-content:center;gap:12px;color:#fff;font-size:22px;font-weight:500;">
+        <svg class="ico" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Fund m1 · $700
+      </div>
+    </div>
+
+    <!-- 8: secured -->
+    <div class="layer" id="L-secured" style="width:460px;height:80px;">
+      <div class="row" style="height:80px;justify-content:center;gap:12px;color:#fff;font-size:22px;font-weight:500;">
+        <svg class="ico" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>$700 secured in escrow
+      </div>
+    </div>
+
+    <!-- 9: board -->
+    <div class="layer" id="L-board" style="width:980px;height:420px;">
+      <div class="col" id="col1" style="left:30px;top:66px;">To do</div>
+      <div class="col" id="col2" style="left:345px;top:66px;">In progress</div>
+      <div class="col" id="col3" style="left:660px;top:66px;">In review</div>
+      <div style="position:absolute;left:32px;top:22px;font-size:17px;font-weight:500;">Board <span class="muted" style="font-weight:400;">· Tutor booking</span></div>
+      <div id="card" style="position:absolute;left:0;top:0;width:250px;height:112px;border-radius:16px;background:#fff;box-sizing:border-box;padding:16px 18px;box-shadow:0 1px 2px rgba(20,20,19,.06),0 12px 30px -16px rgba(20,20,19,.35);">
+        <div class="muted" style="font-size:13px;">m1</div>
+        <div style="font-size:17px;font-weight:500;margin-top:2px;">Tutor search &amp; profiles</div>
+        <div style="position:relative;height:22px;margin-top:12px;font-size:14px;">
+          <span id="card-a" class="row" style="position:absolute;gap:6px;color:#5b5a55;"><svg class="ico" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>$700 secured</span>
+          <span id="card-b" class="row" style="position:absolute;gap:6px;font-weight:500;"><svg class="ico" viewBox="0 0 24 24" style="stroke-width:2.6;"><path id="chk3" d="M20 6 9 17l-5-5"/></svg>Verified · 2/2 criteria met</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10: approve -->
+    <div class="layer" id="L-approve" style="width:460px;height:80px;">
+      <div class="row" style="height:80px;justify-content:center;color:#fff;font-size:22px;font-weight:500;">Approve &amp; release $700</div>
+    </div>
+
+    <!-- 11: released -->
+    <div class="layer" id="L-released" style="width:480px;height:88px;">
+      <div class="row" style="height:88px;justify-content:center;gap:12px;color:#fff;font-size:23px;font-weight:500;">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>$700 released to Ayam
+      </div>
+    </div>
+
+    <!-- 12: notification -->
+    <div class="layer" id="L-notif" data-anchor="top" style="top:0;width:580px;height:172px;padding:0 26px;">
+      <div class="row" style="height:96px;gap:18px;">
+        <div style="position:relative;width:48px;height:48px;border-radius:999px;background:#141413;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <div id="badge" style="position:absolute;right:-6px;top:-6px;min-width:24px;height:24px;border-radius:999px;background:#e8895a;color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-sizing:content-box;"><span id="badge-n">1</span></div>
+        </div>
+        <div style="flex:1;"><div style="font-size:19px;font-weight:500;">m1 approved: $700 released to you</div><div class="muted" style="font-size:15px;margin-top:3px;">Tutor booking · just now</div></div>
+      </div>
+      <div id="notif2" class="row" style="height:60px;gap:18px;border-top:1px solid #e9e7e1;">
+        <div style="width:48px;"></div>
+        <div style="flex:1;font-size:17px;color:#5b5a55;">Next: Weekly booking (m2) starts now</div>
+        <svg class="ico muted" viewBox="0 0 24 24" style="font-size:20px;"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </div>
+    </div>
+
+    <!-- 13: dispute -->
+    <div class="layer" id="L-dispute" style="width:620px;height:132px;padding:0 30px;">
+      <div class="row" style="height:132px;gap:18px;">
+        <div style="width:52px;height:52px;border-radius:999px;background:#f3e2c2;color:#8a5a12;display:flex;align-items:center;justify-content:center;font-size:24px;">
+          <svg class="ico" viewBox="0 0 24 24"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+        </div>
+        <div><div style="font-size:21px;font-weight:500;">“Add Google login before I approve m2.”</div>
+          <div style="font-size:15px;color:#8a5a12;margin-top:4px;">The developer asked the Mediator Agent</div></div>
+      </div>
+    </div>
+
+    <!-- 14: mediator -->
+    <div class="layer" id="L-mediator" style="width:660px;height:246px;padding:28px 30px;">
+      <div class="row" style="gap:14px;">
+        <div style="width:44px;height:44px;border-radius:999px;background:#141413;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;">
+          <svg class="ico" viewBox="0 0 24 24"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+        </div>
+        <div style="font-size:21px;font-weight:500;">Mediator Agent</div><div class="muted" style="font-size:15px;">neutral</div>
+      </div>
+      <div id="med1" class="row" style="gap:12px;margin-top:20px;font-size:19px;"><svg class="ico" viewBox="0 0 24 24" style="stroke-width:2.6;"><path d="M20 6 9 17l-5-5"/></svg>m2 meets both acceptance criteria</div>
+      <div id="med2" class="row" style="gap:12px;margin-top:12px;font-size:19px;color:#5b5a55;"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>Google login is new scope: a change request</div>
+      <div id="med3" style="margin-top:16px;font-size:17px;font-weight:600;color:#c86a3c;">Proposal: release $600</div>
+    </div>
+
+    <!-- 15: wordmark -->
+    <div class="layer" id="L-logo" style="width:420px;height:124px;">
+      <div class="row" style="height:124px;justify-content:center;gap:18px;">
+        <div style="width:72px;height:72px;border-radius:20px;background:#141413;color:#fff;display:flex;align-items:center;justify-content:center;font-size:46px;font-weight:600;letter-spacing:-0.04em;padding-bottom:6px;box-sizing:border-box;">j</div>
+        <div style="font-size:50px;font-weight:500;letter-spacing:-0.04em;">instajob</div>
+      </div>
+    </div>
+
+  </div>
+  <svg id="cursor" viewBox="0 0 30 36"><path d="M3 2 L3 26 L9.5 20 L13.8 30 L17.6 28.3 L13.4 18.6 L22 18.6 Z" fill="#141413" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>
+</div></div>
+
+<script>
+const BPM = 120, BEAT = 60 / BPM, BEATS = 28, DUR = BEATS * BEAT;
+const B = (n) => n * BEAT;
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+
+// Closed-form damped spring step response (0 -> 1). zeta 0.8 = ~1.5% overshoot, settles in ~0.33 s.
+function sstep(tau, freq = 2.3, zeta = 0.8) {
+  if (tau <= 0) return 0;
+  const w = 2 * Math.PI * freq;
+  if (zeta >= 1) return 1 - Math.exp(-w * tau) * (1 + w * tau); // critically damped: no overshoot
+  const wd = w * Math.sqrt(1 - zeta * zeta);
+  return 1 - Math.exp(-zeta * w * tau) * (Math.cos(wd * tau) + (zeta * w / wd) * Math.sin(wd * tau));
+}
+// A value that changes target many times = the sum of one spring per change: a pure function of t.
+function track(t, init, changes, freq, zeta) {
+  let v = init, prev = init;
+  for (const [tc, target] of changes) { v += (target - prev) * sstep(t - tc, freq, zeta); prev = target; }
+  return v;
+}
+const ease = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
+const ramp = (t, t0, d) => ease((t - t0) / d);
+
+// ---------------- the one shape ----------------
+const INK = [20, 20, 19], WHITE = [255, 255, 255], CLAY = [232, 137, 90], PANEL = [244, 243, 239], WARN = [251, 242, 225];
+const S = [
+  { b: 0,     layer: "input",    w: 560, h: 76,  r: 38, bg: WHITE, line: 0.10 },
+  { b: 2,     layer: "btn",      w: 380, h: 76,  r: 38, bg: INK,   line: 0 },
+  { b: 3.25,  layer: "loader",   w: 76,  h: 76,  r: 38, bg: INK,   line: 0 },
+  { b: 4,     layer: "plan",     w: 620, h: 470, r: 30, bg: WHITE, line: 0.10 },
+  { b: 8,     layer: "price",    w: 580, h: 156, r: 78, bg: WHITE, line: 0.10 },
+  { b: 11,    layer: "agreed",   w: 580, h: 156, r: 78, bg: CLAY,  line: 0 },
+  { b: 12,    layer: "contract", w: 560, h: 260, r: 30, bg: WHITE, line: 0.10 },
+  { b: 14,    layer: "fund",     w: 400, h: 80,  r: 40, bg: INK,   line: 0 },
+  { b: 15.25, layer: "secured",  w: 460, h: 80,  r: 40, bg: CLAY,  line: 0 },
+  { b: 16,    layer: "board",    w: 980, h: 420, r: 30, bg: PANEL, line: 0.10 },
+  { b: 20,    layer: "approve",  w: 460, h: 80,  r: 40, bg: INK,   line: 0 },
+  { b: 21.25, layer: "released", w: 480, h: 88,  r: 44, bg: CLAY,  line: 0 },
+  { b: 22,    layer: "notif",    w: 580, h: 96,  r: 26, bg: WHITE, line: 0.10 },
+  { b: 23,    layer: "notif",    w: 580, h: 172, r: 26, bg: WHITE, line: 0.10 },
+  { b: 24,    layer: "dispute",  w: 620, h: 132, r: 30, bg: WARN,  line: 0.08 },
+  { b: 25,    layer: "mediator", w: 660, h: 246, r: 30, bg: WHITE, line: 0.10 },
+  { b: 26,    layer: "logo",     w: 420, h: 124, r: 62, bg: WHITE, line: 0.10 },
+  { b: 27,    layer: "input",    w: 560, h: 76,  r: 38, bg: WHITE, line: 0.10 },
+];
+const shapeTrack = (key, pick = (s) => s[key]) => (t) => track(t, pick(S[0]), S.slice(1).map((s) => [B(s.b), pick(s)]));
+const Tw = shapeTrack("w"), Th = shapeTrack("h"), Tr = shapeTrack("r"), Tline = shapeTrack("line");
+const Tbg = [0, 1, 2].map((i) => shapeTrack("bg", (s) => s.bg[i]));
+
+// Each layer is visible from its state until the next state begins (the same layer spans consecutive states).
+const WINDOWS = {};
+for (let i = 0; i < S.length; i++) {
+  const s = S[i];
+  if (i > 0 && S[i - 1].layer === s.layer) continue;
+  let j = i + 1;
+  while (j < S.length && S[j].layer === s.layer) j++;
+  const start = i === 0 ? -1 : B(s.b) + 0.07;
+  const end = j < S.length ? B(S[j].b) : 99;
+  (WINDOWS[s.layer] ||= []).push([start, end]);
+}
+function visible(t, windows) {
+  let o = 0;
+  for (const [a, b] of windows) {
+    const inn = a < 0 ? 1 : ramp(t, a, 0.2);
+    const out = b >= 99 ? 0 : ramp(t, b, 0.11);
+    o = Math.max(o, inn * (1 - out));
+  }
+  return o;
+}
+
+// ---------------- the cursor ----------------
+const REST = [230, 78];
+const MOVES = [ // [time, x, y]: each move is a spring to a new point
+  [B(2.2), 40, 12], [B(3.6), 150, 110],
+  [B(4.3), 360, 230],
+  [B(8), 330, 120],
+  [B(12.35), 236, 80],
+  [B(14.1), 40, 12],
+  [B(15.55), -330, -8],
+  [B(16.85), -15, 2], [B(17.55), 300, -6],
+  [B(18.35), 420, 180],
+  [B(19.6), 60, 12],
+  [B(21.6), 330, 110],
+  [B(24), 360, 120],
+  [B(26), 260, 120],
+  [B(27.1), REST[0], REST[1]],
+];
+const Tcx = (t) => track(t, REST[0], MOVES.map((m) => [m[0], m[1]]), 1.9);
+const Tcy = (t) => track(t, REST[1], MOVES.map((m) => [m[0], m[2]]), 1.9);
+const CLICKS = [B(3), B(13), B(15), B(21)];
+const HOLD = [B(16.6), B(18.1)];
+function press(t) {
+  let p = 0;
+  for (const c of CLICKS) p += sstep(t - c, 5.5, 0.9) - sstep(t - c - 0.12, 5.5, 0.9);
+  p += sstep(t - HOLD[0], 5.5, 0.9) - sstep(t - HOLD[1], 5.5, 0.9);
+  return clamp(p, 0, 1);
+}
+
+// ---------------- the dragged card (direct manipulation) ----------------
+const SLOT1 = [-315, -40], SLOT3 = [315, -40];
+function cardPos(t) {
+  const grab = [Tcx(HOLD[0]) - SLOT1[0], Tcy(HOLD[0]) - SLOT1[1]];
+  if (t < HOLD[0]) return SLOT1;
+  if (t < HOLD[1]) return [Tcx(t) - grab[0], Tcy(t) - grab[1]];
+  const rel = [Tcx(HOLD[1]) - grab[0], Tcy(HOLD[1]) - grab[1]];
+  const k = 1 - sstep(t - HOLD[1], 2.4);
+  return [SLOT3[0] + (rel[0] - SLOT3[0]) * k, SLOT3[1] + (rel[1] - SLOT3[1]) * k];
+}
+
+// ---------------- content ----------------
+const TEXT = "Booking app for home tutors";
+const T0 = 0.08, T1 = B(1.85);
+// Typed during bar 1; empty again by the time the input comes back at the end (so the loop matches).
+const typedCount = (t) => (t < T0 || t >= B(26.5) ? 0 : clamp(Math.floor(((t - T0) / (T1 - T0)) * TEXT.length) + 1, 0, TEXT.length));
+const fmt = (v) => "$" + Math.round(v).toLocaleString("en-US");
+const $ = (id) => document.getElementById(id);
+const LAYERS = [...new Set(S.map((s) => s.layer))];
+const el = Object.fromEntries(LAYERS.map((l) => [l, $("L-" + l)]));
+
+function fadeEl(node, o, dy = 10) {
+  node.style.opacity = o.toFixed(4);
+  node.style.transform = `translateY(${((1 - o) * dy).toFixed(2)}px)`;
+  node.style.filter = o < 0.999 ? `blur(${((1 - o) * 5).toFixed(2)}px)` : "none";
+}
+function drawCheck(path, p) { path.style.strokeDasharray = "24"; path.style.strokeDashoffset = (24 * (1 - clamp(p, 0, 1))).toFixed(2); }
+
+function seek(tIn) {
+  const t = ((tIn % DUR) + DUR) % DUR;
+  const w = Tw(t), h = Th(t), r = Tr(t), line = Tline(t);
+  const bg = Tbg.map((f) => clamp(Math.round(f(t)), 0, 255));
+  const p = press(t);
+  const current = S.filter((s) => B(s.b) <= t).pop() || S[0];
+  const pressable = ["btn", "fund", "approve"].includes(current.layer);
+  const ps = pressable ? 1 - 0.035 * p : 1;
+
+  // camera: zoom so each state fills the frame
+  const z = clamp(Math.min((1920 * 0.56) / w, (1080 * 0.6) / h), 0.85, 2.25);
+  $("cam").style.transform = `scale(${z.toFixed(5)})`;
+
+  const shape = $("shape");
+  shape.style.width = w.toFixed(2) + "px";
+  shape.style.height = h.toFixed(2) + "px";
+  shape.style.left = (-w / 2).toFixed(2) + "px";
+  shape.style.top = (-h / 2).toFixed(2) + "px";
+  shape.style.borderRadius = Math.max(0, r).toFixed(2) + "px";
+  shape.style.background = `rgb(${bg.join(",")})`;
+  shape.style.boxShadow = `inset 0 0 0 1px rgba(20,20,19,${clamp(line, 0, 1).toFixed(3)}), 0 1px 2px rgba(20,20,19,.05), 0 30px 60px -30px rgba(20,20,19,.28)`;
+  shape.style.transform = `scale(${ps.toFixed(4)})`;
+
+  for (const l of LAYERS) {
+    const o = visible(t, WINDOWS[l]);
+    const node = el[l];
+    if (o <= 0.001) { node.style.display = "none"; continue; }
+    node.style.display = "block";
+    node.style.opacity = o.toFixed(4);
+    node.style.filter = o < 0.999 ? `blur(${((1 - o) * 7).toFixed(2)}px)` : "none";
+    const ty = node.dataset.anchor === "top" ? "0" : "-50%";
+    node.style.transform = `translate(-50%,${ty}) scale(${(0.985 + 0.015 * o).toFixed(4)})`;
+  }
+
+  // idea: typing
+  const n = typedCount(t);
+  $("typed").textContent = TEXT.slice(0, n);
+  $("ph").style.display = n ? "none" : "inline";
+  const typing = t >= T0 && t <= T1 + 0.05;
+  $("caret").style.opacity = typing || Math.floor(t * 2.4) % 2 === 0 ? "1" : "0";
+
+  // loader
+  $("spin").style.transform = `rotate(${(t * 520) % 360}deg)`;
+
+  // plan: header, then one milestone per beat
+  [B(4.15), B(5), B(6), B(7)].forEach((tc, i) => fadeEl($("ms" + (i + 1)), sstep(t - tc, 2.6), 14));
+  fadeEl($("plan-meta"), sstep(t - B(7.3), 2.6), 6);
+
+  // negotiation
+  const price = track(t, 2460, [[B(9), 1830], [B(10), 1950]], 3.4, 1); // critically damped: money lands exactly
+  $("price").textContent = fmt(Math.round(price / 10) * 10); // rolls in $10 steps, like a counter
+  const labs = [[B(8), B(9)], [B(9), B(10)], [B(10), 99]];
+  labs.forEach(([a, b], i) => fadeEl($("lab" + (i + 1)), (i === 0 ? 1 : ramp(t, a + 0.05, 0.18)) * (1 - (b >= 99 ? 0 : ramp(t, b, 0.1))), 8));
+  $("av-you").style.opacity = (ramp(t, B(9), 0.15) * (1 - ramp(t, B(10), 0.12))).toFixed(3);
+  fadeEl($("chips"), sstep(t - B(10.4), 2.6), 8);
+  drawCheck($("agreed-check"), ramp(t, B(11) + 0.12, 0.25));
+
+  // contract: founder signed, developer clicks to sign
+  const s1 = ramp(t, B(12.3), 0.2), s2 = ramp(t, B(13) + 0.05, 0.2);
+  $("ring1").style.background = s1 > 0 ? `rgba(20,20,19,${s1})` : "transparent";
+  $("ring1").style.borderColor = s1 > 0.5 ? "#141413" : "#d8d5cc";
+  $("ring2").style.background = s2 > 0 ? `rgba(20,20,19,${s2})` : "transparent";
+  $("ring2").style.borderColor = s2 > 0.5 ? "#141413" : "#d8d5cc";
+  drawCheck($("chk1"), ramp(t, B(12.35), 0.22));
+  drawCheck($("chk2"), ramp(t, B(13) + 0.1, 0.22));
+
+  // board: the card is dragged across columns, then verified
+  const [cx, cy] = cardPos(t);
+  const held = t >= HOLD[0] && t < HOLD[1];
+  const vx = (Tcx(t) - Tcx(t - 1 / 120)) * 120;
+  const tilt = held ? clamp(vx * 0.004, -5, 5) : 0;
+  const lift = held ? 1 + 0.04 * p : 1;
+  const cardIn = sstep(t - B(16.15), 2.6);
+  const card = $("card");
+  card.style.transform = `translate(${(490 + cx - 125).toFixed(2)}px, ${(210 + cy - 56 + (1 - cardIn) * 14).toFixed(2)}px) rotate(${tilt.toFixed(2)}deg) scale(${lift.toFixed(4)})`;
+  card.style.opacity = cardIn.toFixed(3);
+  const over = cx < -160 ? 1 : cx < 160 ? 2 : 3;
+  [1, 2, 3].forEach((c) => ($("col" + c).style.background = held && over === c ? "#e2dfd7" : "#ebe9e3"));
+  const ver = ramp(t, B(19), 0.2);
+  fadeEl($("card-a"), 1 - ver, 6);
+  fadeEl($("card-b"), ver, 6);
+  drawCheck($("chk3"), ramp(t, B(19) + 0.1, 0.22));
+
+  // notification: badge pop, second line on the next beat
+  const pop = sstep(t - B(22.3), 3.2, 0.62);
+  $("badge").style.transform = `scale(${pop.toFixed(4)})`;
+  $("badge-n").textContent = t >= B(23) ? "2" : "1";
+  fadeEl($("notif2"), sstep(t - B(23.1), 2.6), 10);
+
+  // mediator: findings arrive one after another
+  fadeEl($("med1"), sstep(t - B(25.2), 2.6), 8);
+  fadeEl($("med2"), sstep(t - B(25.55), 2.6), 8);
+  fadeEl($("med3"), sstep(t - B(25.85), 2.6), 8);
+
+  // cursor: constant size on screen, pressed while clicking or dragging
+  const cur = $("cursor");
+  cur.style.transform = `translate(${Tcx(t).toFixed(2)}px, ${Tcy(t).toFixed(2)}px) scale(${((1 - 0.14 * p) / z).toFixed(5)})`;
+}
+
+window.seek = seek;
+window.DUR = DUR;
+window.EVENTS = { BEAT, TEXT, T0, T1, CLICKS, HOLD, STATES: S.map((s) => ({ b: s.b, layer: s.layer })) };
+document.fonts.ready.then(() => { seek(0); window.__ready = true; });
+
+// Live preview when opened directly: play in real time (the renderer calls seek(t) itself).
+if (!/[?&]render/.test(location.search)) {
+  const start = performance.now();
+  const loop = () => { seek((performance.now() - start) / 1000); requestAnimationFrame(loop); };
+  document.fonts.ready.then(loop);
+}
+</script>
+</body>
+</html>
